@@ -1,0 +1,8 @@
+<resources>
+    <color name="theme_primary">#5d4037</color>
+    <color name="theme_primary_dark">#321911</color>
+    <color name="theme_accent">#ff3d00</color>
+
+    <color name="photo_placeholder">#cccccccc</color>
+    <color name="card_text_background">#55bbbbbb</color>
+</resources>
