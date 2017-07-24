@@ -4,7 +4,6 @@ import android.app.Fragment;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 
@@ -19,6 +18,7 @@ import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ShareCompat;
+import android.support.v4.widget.NestedScrollView;
 import android.support.v7.graphics.Palette;
 import android.text.Html;
 import android.text.Spanned;
@@ -29,6 +29,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -55,28 +56,19 @@ public class ArticleDetailFragment extends Fragment {
     private static final int BODY_CHUNK_SIZE = 1024;
     private static final int PRE_LOAD_TRIGGER_OFFSET = 256;
 
-    private static final float PARALLAX_FACTOR = 1.25f;
-
     private Article mArticle;
     private int mBodyChunkId;
     private View mRootView;
     private int mMutedColor = 0xFF333333;
-    private ColorDrawable mStatusBarColorDrawable;
-    private int mTopInset;
 
-    private int mScrollY;
-    private boolean mIsCard = false;
-    private int mStatusBarFullOpacityBottom;
-
-    @BindView(R.id.photo_container) View mPhotoContainerView;
-    @BindView(R.id.scrollview) ObservableScrollView mScrollView;
+    @BindView(R.id.article_detail_scrollview) NestedScrollView mScrollView;
     @BindView(R.id.photo) ImageView mPhotoView;
-    @BindView(R.id.draw_insets_frame_layout) DrawInsetsFrameLayout mDrawInsetsFrameLayout;
+    @BindView(R.id.share_fab) FloatingActionButton mShareFab;
+    @BindView(R.id.article_detail_content_holder) LinearLayout mContentHolder;
     @BindView(R.id.article_title) TextView mTitleView;
     @BindView(R.id.article_byline) TextView mByLineView;
-    @BindView(R.id.body_chunk_loader_progressbar) ProgressBar mBodyChunkLoader;
     @BindView(R.id.article_body) TextView mBodyView;
-    @BindView(R.id.share_fab) FloatingActionButton mShareFab;
+    @BindView(R.id.body_chunk_loader_progressbar) ProgressBar mBodyChunkLoader;
 
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.sss");
     // Use default locale format
@@ -110,15 +102,7 @@ public class ArticleDetailFragment extends Fragment {
             mBodyChunkId = 0;
             mArticle = getArguments().getParcelable(ARTICLE);
         }
-
-        mIsCard = getResources().getBoolean(R.bool.detail_is_card);
-        mStatusBarFullOpacityBottom = getResources().getDimensionPixelSize(
-                R.dimen.detail_card_top_margin);
         setHasOptionsMenu(true);
-    }
-
-    public ArticleDetailActivity getActivityCast() {
-        return (ArticleDetailActivity) getActivity();
     }
 
     @Override
@@ -130,7 +114,6 @@ public class ArticleDetailFragment extends Fragment {
         // Fine tune views
         mByLineView.setMovementMethod(new LinkMovementMethod());
         mBodyView.setTypeface(Typeface.createFromAsset(getResources().getAssets(), "literata-regular.ttf"));
-        mStatusBarColorDrawable = new ColorDrawable(0);
 
         // Load article
         mTitleView.setText(mArticle.getTitle());
@@ -168,7 +151,6 @@ public class ArticleDetailFragment extends Fragment {
                             mPhotoView.setImageBitmap(imageContainer.getBitmap());
                             mRootView.findViewById(R.id.meta_bar)
                                     .setBackgroundColor(mMutedColor);
-                            updateStatusBar();
                         }
                     }
 
@@ -179,21 +161,6 @@ public class ArticleDetailFragment extends Fragment {
                 });
 
         // Callbacks region
-        mDrawInsetsFrameLayout.setOnInsetsCallback(new DrawInsetsFrameLayout.OnInsetsCallback() {
-            @Override
-            public void onInsetsChanged(Rect insets) {
-                mTopInset = insets.top;
-            }
-        });
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            mScrollView.setOnScrollChangeListener(new View.OnScrollChangeListener() {
-                @Override
-                public void onScrollChange(View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
-                    if (oldScrollY - scrollY < 0) mShareFab.hide();
-                    else mShareFab.show();
-                }
-            });
-        }
         mShareFab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -203,16 +170,11 @@ public class ArticleDetailFragment extends Fragment {
                         .getIntent(), getString(R.string.action_share)));
             }
         });
-        mScrollView.setCallbacks(new ObservableScrollView.Callbacks() {
+        mScrollView.setOnScrollChangeListener(new NestedScrollView.OnScrollChangeListener() {
             @Override
-            public void onScrollChanged() {
-                mScrollY = mScrollView.getScrollY();
-                getActivityCast().onUpButtonFloorChanged(mArticle.getId(), ArticleDetailFragment.this);
-                mPhotoContainerView.setTranslationY((int) (mScrollY - mScrollY / PARALLAX_FACTOR));
-                updateStatusBar();
-
+            public void onScrollChange(NestedScrollView v, int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
                 // Check if we require to load a new body chunk
-                if (mBodyChunkLoader.isShown() && mBodyChunkLoader.getTop() <= (mScrollY + mBodyView.getTop() + PRE_LOAD_TRIGGER_OFFSET)) {
+                if (mBodyChunkLoader.isShown() && mBodyChunkLoader.getTop() - scrollY - mScrollView.getHeight() < PRE_LOAD_TRIGGER_OFFSET) {
                     if (loadMarkdownTextChunkIntoBody(mArticle.getBody(), mBodyChunkId) == false) {
                         mBodyChunkLoader.setVisibility(View.GONE);
                     } else {
@@ -224,21 +186,6 @@ public class ArticleDetailFragment extends Fragment {
         });
 
         return mRootView;
-    }
-
-    private void updateStatusBar() {
-        int color = 0;
-        if (mPhotoView != null && mTopInset != 0 && mScrollY > 0) {
-            float f = progress(mScrollY,
-                    mStatusBarFullOpacityBottom - mTopInset * 3,
-                    mStatusBarFullOpacityBottom - mTopInset);
-            color = Color.argb((int) (255 * f),
-                    (int) (Color.red(mMutedColor) * 0.9),
-                    (int) (Color.green(mMutedColor) * 0.9),
-                    (int) (Color.blue(mMutedColor) * 0.9));
-        }
-        mStatusBarColorDrawable.setColor(color);
-        mDrawInsetsFrameLayout.setInsetBackground(mStatusBarColorDrawable);
     }
 
     static float progress(float v, float min, float max) {
@@ -264,17 +211,6 @@ public class ArticleDetailFragment extends Fragment {
             Log.i(TAG, "passing today's date");
             return new Date();
         }
-    }
-
-    public int getUpButtonFloor() {
-        if (mPhotoContainerView == null || mPhotoView.getHeight() == 0) {
-            return Integer.MAX_VALUE;
-        }
-
-        // account for parallax
-        return mIsCard
-                ? (int) mPhotoContainerView.getTranslationY() + mPhotoView.getHeight() - mScrollY
-                : mPhotoView.getHeight() - mScrollY;
     }
 
     private boolean loadMarkdownTextChunkIntoBody(@NonNull String fullText, int chunkId) {
